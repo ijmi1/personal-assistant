@@ -23,9 +23,19 @@ spring:
   lifecycle:
     timeout-per-shutdown-phase: 25s
   http:
-    client:
+    clients:
       connect-timeout: 10s
       read-timeout: 60s
+    converters:
+      preferred-json-mapper: jackson2
+  jackson2:
+    serialization:
+      write-dates-as-timestamps: false
+      write-durations-as-timestamps: false
+    deserialization:
+      fail-on-unknown-properties: false
+    mapper:
+      default-view-inclusion: false
   datasource:
     url: ${ASSISTANT_DB_URL:jdbc:postgresql://127.0.0.1:5432/assistant}
     username: ${ASSISTANT_DB_USER:assistant}
@@ -45,17 +55,15 @@ spring:
         transcription: none
       image: none
       moderation: none
-    retry:
-      max-attempts: 1
     openai:
       base-url: ${ASSISTANT_MODEL_URL:https://api.openai.com}
       api-key: ${ASSISTANT_MODEL_KEY:}
+      timeout: 60s
+      max-retries: 0
       chat:
-        options:
-          model: ${ASSISTANT_CHAT_MODEL:gpt-4o-mini}
+        model: ${ASSISTANT_CHAT_MODEL:gpt-4o-mini}
       embedding:
-        options:
-          model: ${ASSISTANT_EMBEDDING_MODEL:text-embedding-3-small}
+        model: ${ASSISTANT_EMBEDDING_MODEL:text-embedding-3-small}
   mail:
     host: ${ASSISTANT_SMTP_HOST:localhost}
     port: ${ASSISTANT_SMTP_PORT:465}
@@ -102,14 +110,25 @@ assistant:
     mail-ms: ${ASSISTANT_MAIL_MS:60000}
     reconcile-ms: ${ASSISTANT_RECONCILE_MS:120000}
 management:
+  logging:
+    export:
+      otlp:
+        enabled: false
+  otlp:
+    metrics:
+      export:
+        enabled: false
   tracing:
     sampling:
       probability: ${ASSISTANT_TRACE_SAMPLE_RATE:0.1}
-  otlp:
-    tracing:
-      endpoint: ${ASSISTANT_OTLP_ENDPOINT:http://127.0.0.1:4318/v1/traces}
-      export:
+    export:
+      otlp:
         enabled: ${ASSISTANT_OTLP_ENABLED:false}
+  opentelemetry:
+    tracing:
+      export:
+        otlp:
+          endpoint: ${ASSISTANT_OTLP_ENDPOINT:http://127.0.0.1:4318/v1/traces}
   endpoints:
     web:
       exposure:

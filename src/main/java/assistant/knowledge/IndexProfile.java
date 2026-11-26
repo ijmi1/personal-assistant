@@ -13,7 +13,7 @@ class IndexProfile {
 
     IndexProfile(Store db, @Value("${assistant.embedding-profile}") String explicit,
                  @Value("${spring.ai.openai.base-url}") String endpoint,
-                 @Value("${spring.ai.openai.embedding.options.model}") String model) {
+                 @Value("${spring.ai.openai.embedding.model}") String model) {
         this.db = db;
         id = Store.hash(db.write(new String[]{endpoint, model, explicit}).getBytes(StandardCharsets.UTF_8));
     }
