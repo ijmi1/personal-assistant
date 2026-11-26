@@ -12,7 +12,7 @@ COPY src/main ./src/main
 COPY --from=web /web/dist ./frontend/dist
 RUN mvn -B -ntp -DskipTests package
 
-FROM eclipse-temurin:21-jre-alpine
+FROM eclipse-temurin:25-jre-alpine
 RUN apk add --no-cache curl fontconfig font-dejavu \
     && addgroup -S -g 10001 assistant \
     && adduser -S -D -u 10001 -G assistant assistant
