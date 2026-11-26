@@ -1,8 +1,7 @@
 package assistant.model;
 
 import assistant.common.Problem;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import io.micrometer.core.instrument.MeterRegistry;
 import org.springframework.ai.chat.messages.SystemMessage;
 import org.springframework.ai.chat.messages.UserMessage;
 import org.springframework.ai.chat.model.ChatModel;
@@ -12,21 +11,23 @@ import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
-import java.util.List;
 import java.time.Duration;
+import java.util.List;
+import java.util.function.Supplier;
 
 @Component
 class SpringIntelligence implements Intelligence {
-    private static final Logger LOG = LoggerFactory.getLogger(SpringIntelligence.class);
     private final ObjectProvider<ChatModel> chat;
     private final ObjectProvider<EmbeddingModel> embedding;
     private final boolean enabled;
+    private final MeterRegistry metrics;
 
     SpringIntelligence(ObjectProvider<ChatModel> chat, ObjectProvider<EmbeddingModel> embedding,
-                       @Value("${assistant.model-enabled}") boolean enabled) {
+                       @Value("${assistant.model-enabled}") boolean enabled, MeterRegistry metrics) {
         this.chat = chat;
         this.embedding = embedding;
         this.enabled = enabled;
+        this.metrics = metrics;
     }
 
     @Override
@@ -34,14 +35,8 @@ class SpringIntelligence implements Intelligence {
         if (!enabled || embedding.getIfAvailable() == null) {
             throw Problem.unavailable("嵌入模型未配置");
         }
-        long started = System.nanoTime();
-        try {
-            return embedding.getObject().embed(texts);
-        } catch (RuntimeException e) {
-            throw Problem.unavailable("嵌入模型不可用，请检查模型配置或稍后重试");
-        } finally {
-            LOG.info("嵌入请求耗时 {} ms，输入 {} 段", elapsed(started), texts.size());
-        }
+        return timed("embedding", "嵌入模型不可用，请检查模型配置或稍后重试",
+                () -> embedding.getObject().embed(texts));
     }
 
     @Override
@@ -49,18 +44,22 @@ class SpringIntelligence implements Intelligence {
         if (!enabled || chat.getIfAvailable() == null) {
             throw Problem.unavailable("对话模型未配置");
         }
-        long started = System.nanoTime();
-        try {
-            return chat.getObject().call(new Prompt(List.of(new SystemMessage(instruction), new UserMessage(input))))
-                    .getResult().getOutput().getText();
-        } catch (RuntimeException e) {
-            throw Problem.unavailable("对话模型不可用，请检查模型配置或稍后重试");
-        } finally {
-            LOG.info("对话请求耗时 {} ms", elapsed(started));
-        }
+        return timed("chat", "对话模型不可用，请检查模型配置或稍后重试",
+                () -> chat.getObject().call(new Prompt(List.of(new SystemMessage(instruction), new UserMessage(input))))
+                        .getResult().getOutput().getText());
     }
 
-    private static long elapsed(long started) {
-        return Duration.ofNanos(System.nanoTime() - started).toMillis();
+    private <T> T timed(String operation, String reason, Supplier<T> call) {
+        long start = System.nanoTime();
+        String outcome = "success";
+        try {
+            return call.get();
+        } catch (RuntimeException failure) {
+            outcome = "failure";
+            throw Problem.unavailable(reason);
+        } finally {
+            metrics.timer("assistant.ai.calls", "operation", operation, "outcome", outcome)
+                    .record(Duration.ofNanos(System.nanoTime() - start));
+        }
     }
 }

@@ -33,10 +33,12 @@ test('C01 从手机核对原文、保留草稿并发送', async ({ page, context
 
   const reopened = await context.newPage()
   await reopened.goto('/#/tasks')
+  await expect(reopened).toHaveURL(/\/tasks$/)
+  await reopened.reload()
   await reopened.getByRole('link', { name: /起草回复/ }).click()
   await reopened.getByRole('link', { name: /打开草稿/ }).click()
   await expect(reopened.getByLabel('正文')).toHaveValue(edited)
-  expect(await (await reopened.request.get('/api/sends')).json()).toEqual([])
+  expect(await (await reopened.request.get('/api/v1/sends')).json()).toEqual([])
   await reopened.getByRole('button', { name: '核对并发送' }).click()
   const dialog = reopened.getByRole('dialog', { name: '确认发送' })
   await expect(dialog.getByLabel('确认正文')).toHaveText(edited)
@@ -44,6 +46,23 @@ test('C01 从手机核对原文、保留草稿并发送', async ({ page, context
   await dialog.getByRole('button', { name: '确认发送此修订' }).click()
   await expect(reopened.getByText('已发送', { exact: true })).toBeVisible({ timeout: 20_000 })
   expect(await reopened.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
+})
+
+test('页面组件加载失败时提供恢复入口', async ({ page }) => {
+  await login(page, '/')
+  await page.route('**/assets/Task-*.js', request => request.abort())
+  await page.getByLabel('你的问题').fill('uncovered')
+  await page.getByRole('button', { name: /提问/ }).click()
+  await expect(page.getByRole('heading', { name: '页面暂时无法打开' })).toBeVisible()
+  await expect(page.getByRole('button', { name: '重新加载页面' })).toBeVisible()
+  await page.getByRole('link', { name: '资料库', exact: true }).click()
+  await expect(page.getByRole('heading', { name: '资料库' })).toBeVisible()
+})
+
+test('已登录用户可浏览 OpenAPI 文档', async ({ page }) => {
+  await login(page, '/')
+  await page.goto('/swagger-ui/index.html')
+  await expect(page.getByRole('heading', { name: /个人学习助手 API/ })).toBeVisible()
 })
 
 test('K04 在桌面保存 PDF 页内位置，从手机查看引用后接着阅读', async ({ page, browser, baseURL }) => {
@@ -61,9 +80,9 @@ test('K04 在桌面保存 PDF 页内位置，从手机查看引用后接着阅�
     await expect(desktop.getByRole('button', { name: '保存阅读位置' })).toBeEnabled()
     await reader.evaluate(frame => { frame.scrollTop = (frame.scrollHeight - frame.clientHeight) / 2 })
     await desktop.getByRole('button', { name: '保存阅读位置' }).click()
-    const id = new URL(desktop.url()).hash.split('/').at(-1)
+    const id = new URL(desktop.url()).pathname.split('/').at(-1)
     await expect.poll(async () => {
-      const response = await desktop.request.get(baseURL + '/api/documents/' + id + '/bookmark')
+      const response = await desktop.request.get(baseURL + '/api/v1/documents/' + id + '/bookmark')
       return (await response.json()).ratio
     }).toBeCloseTo(0.5, 1)
 

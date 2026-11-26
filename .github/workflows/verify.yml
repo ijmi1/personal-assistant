@@ -1,0 +1,86 @@
+name: Verify and scan
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    services:
+      postgres:
+        image: pgvector/pgvector:pg17
+        env:
+          POSTGRES_DB: assistant_test
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: ci-test-only
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres -d assistant_test"
+          --health-interval 5s --health-timeout 3s --health-retries 12
+    env:
+      ASSISTANT_TEST_DB_URL: jdbc:postgresql://127.0.0.1:5432/assistant_test
+      ASSISTANT_TEST_DB_USER: postgres
+      ASSISTANT_TEST_DB_PASSWORD: ci-test-only
+      ASSISTANT_BROWSER_E2E: "1"
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm --prefix frontend ci
+      - run: npm --prefix frontend test
+      - run: npm --prefix frontend run build
+      - run: npx playwright install --with-deps chromium
+        working-directory: frontend
+      - run: mvn -B -ntp verify
+      - uses: actions/upload-artifact@v6
+        with:
+          name: learning-assistant
+          path: target/learning-assistant-*.jar
+          if-no-files-found: error
+
+  image:
+    needs: verify
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Build and start the runtime image
+        run: |
+          mkdir -p "$RUNNER_TEMP/materials"
+          cat > .env <<EOF
+          ASSISTANT_DOCUMENTS_DIR=$RUNNER_TEMP/materials
+          ASSISTANT_PASSWORD=Ci-only-Password1!
+          ASSISTANT_DB_PASSWORD=ci-test-only
+          ASSISTANT_CHAT_PROVIDER=none
+          ASSISTANT_EMBEDDING_PROVIDER=none
+          ASSISTANT_MODEL_ENABLED=false
+          EOF
+          docker compose up --build --detach --wait --wait-timeout 120
+          curl --fail --silent http://127.0.0.1:8080/actuator/health/readiness
+          docker save -o "$RUNNER_TEMP/assistant-image.tar" "$(docker compose images -q app)"
+      - name: Stop test containers
+        if: always()
+        run: docker compose down
+      - name: Scan the runtime image
+        run: |
+          docker run --rm -v "$RUNNER_TEMP/assistant-image.tar:/scan/image.tar:ro" \
+            ghcr.io/aquasecurity/trivy:0.76.2 image --input /scan/image.tar \
+            --scanners vuln --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1

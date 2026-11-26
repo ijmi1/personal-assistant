@@ -1,5 +1,5 @@
 import { createApp } from 'vue'
-import { createRouter, createWebHashHistory } from 'vue-router'
+import { createRouter, createWebHistory } from 'vue-router'
 import App from './App.vue'
 import Ask from './views/Ask.vue'
 import Library from './views/Library.vue'
@@ -7,8 +7,12 @@ import Mail from './views/Mail.vue'
 import Tasks from './views/Tasks.vue'
 import './style.css'
 
+if (location.pathname === '/' && /^#\/(?![/\\])/.test(location.hash)) {
+  history.replaceState(history.state, '', location.hash.slice(1))
+}
+
 const router = createRouter({
-  history: createWebHashHistory(),
+  history: createWebHistory(),
   scrollBehavior: () => ({ top: 0 }),
   routes: [
     { path: '/', component: Ask },

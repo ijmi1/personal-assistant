@@ -16,8 +16,8 @@ public record Outbound(List<String> to, List<String> cc, List<String> bcc, Strin
         if (content == null || content.subject() == null || content.body() == null) {
             throw Problem.invalid("请提供完整的草稿内容");
         }
-        if (content.subject().length() > 998 || hasLineBreak(content.subject()) || content.body().length() > 100_000
-                || content.body().contains("\u0000")) {
+        if (content.subject().length() > 998 || hasControl(content.subject()) || content.body().length() > 100_000
+                || content.body().codePoints().anyMatch(cp -> Character.isISOControl(cp) && cp != '\n' && cp != '\r' && cp != '\t')) {
             throw Problem.invalid("主题或正文超出长度限制或含有无效字符");
         }
         return new Outbound(addresses(content.to()), addresses(content.cc()), addresses(content.bcc()), content.subject(),
@@ -46,7 +46,7 @@ public record Outbound(List<String> to, List<String> cc, List<String> bcc, Strin
     }
 
     public static String address(String value) {
-        if (value == null || value.isBlank() || hasLineBreak(value) || value.length() > 320) {
+        if (value == null || value.isBlank() || hasControl(value) || value.length() > 320) {
             throw Problem.invalid("邮件地址格式不正确");
         }
         try {
@@ -83,7 +83,8 @@ public record Outbound(List<String> to, List<String> cc, List<String> bcc, Strin
 
     private static Attachment attachment(AttachmentEdit item, List<Attachment> previous) {
         if (item == null || item.name() == null || item.name().isBlank() || item.name().length() > 240
-                || hasLineBreak(item.name()) || item.name().contains("/") || item.name().contains("\\")) {
+                || hasControl(item.name()) || item.name().equals(".") || item.name().equals("..")
+                || item.name().contains("/") || item.name().contains("\\")) {
             throw Problem.invalid("附件名称无效");
         }
         if (item.index() != null) {
@@ -104,8 +105,8 @@ public record Outbound(List<String> to, List<String> cc, List<String> bcc, Strin
         }
     }
 
-    private static boolean hasLineBreak(String value) {
-        return value.indexOf('\r') >= 0 || value.indexOf('\n') >= 0 || value.indexOf('\0') >= 0;
+    private static boolean hasControl(String value) {
+        return value.codePoints().anyMatch(Character::isISOControl);
     }
 
     public record Edit(List<String> to, List<String> cc, List<String> bcc, String subject, String body,

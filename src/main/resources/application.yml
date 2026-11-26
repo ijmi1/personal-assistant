@@ -1,15 +1,27 @@
 server:
+  shutdown: graceful
   address: ${ASSISTANT_BIND:127.0.0.1}
   port: ${ASSISTANT_PORT:8080}
-  forward-headers-strategy: framework
+  forward-headers-strategy: native
+  tomcat:
+    remoteip:
+      remote-ip-header: x-forwarded-for
+      protocol-header: x-forwarded-proto
+      internal-proxies: ${ASSISTANT_TRUSTED_PROXY_REGEX:127\.0\.0\.1|::1|0:0:0:0:0:0:0:1}
   servlet:
     session:
-      timeout: 12h
+      timeout: ${ASSISTANT_SESSION_TIMEOUT:4h}
       cookie:
         http-only: true
         same-site: strict
         secure: ${ASSISTANT_SECURE_COOKIE:true}
 spring:
+  main:
+    banner-mode: "off"
+  application:
+    name: learning-assistant
+  lifecycle:
+    timeout-per-shutdown-phase: 25s
   http:
     client:
       connect-timeout: 10s
@@ -18,6 +30,12 @@ spring:
     url: ${ASSISTANT_DB_URL:jdbc:postgresql://127.0.0.1:5432/assistant}
     username: ${ASSISTANT_DB_USER:assistant}
     password: ${ASSISTANT_DB_PASSWORD:}
+    hikari:
+      maximum-pool-size: ${ASSISTANT_DB_POOL_MAX:10}
+      minimum-idle: ${ASSISTANT_DB_POOL_MIN_IDLE:2}
+      connection-timeout: 10000
+      idle-timeout: 300000
+      max-lifetime: 600000
   ai:
     model:
       chat: ${ASSISTANT_CHAT_PROVIDER:openai}
@@ -45,6 +63,7 @@ spring:
     password: ${ASSISTANT_SMTP_PASSWORD:}
     properties:
       "[mail.smtp.auth]": ${ASSISTANT_SMTP_AUTH:true}
+      "[mail.smtp.auth.mechanisms]": ${ASSISTANT_SMTP_AUTH_MECHANISMS:LOGIN PLAIN DIGEST-MD5 NTLM}
       "[mail.smtp.ssl.enable]": ${ASSISTANT_SMTP_SSL:true}
       "[mail.smtp.ssl.checkserveridentity]": true
       "[mail.smtp.starttls.required]": ${ASSISTANT_SMTP_STARTTLS:false}
@@ -55,13 +74,25 @@ spring:
 assistant:
   owner: ${ASSISTANT_OWNER:learner}
   password: ${ASSISTANT_PASSWORD:}
+  allow-legacy-password: ${ASSISTANT_ALLOW_LEGACY_PASSWORD:false}
+  cors-origins: ${ASSISTANT_CORS_ORIGINS:}
+  api-limit:
+    owner-per-minute: ${ASSISTANT_API_OWNER_PER_MINUTE:240}
+    anonymous-per-minute: ${ASSISTANT_API_ANONYMOUS_PER_MINUTE:120}
+    login-per-minute: ${ASSISTANT_LOGIN_PER_MINUTE:10}
+  retrieval:
+    cache-entries: ${ASSISTANT_EMBED_CACHE_ENTRIES:512}
+    cache-ttl: ${ASSISTANT_EMBED_CACHE_TTL:10m}
   documents: ${ASSISTANT_DOCUMENTS:}
   embedding-profile: ${ASSISTANT_EMBEDDING_PROFILE:}
   model-enabled: ${ASSISTANT_MODEL_ENABLED:true}
+  jobs:
+    ai-per-minute: ${ASSISTANT_AI_JOBS_PER_MINUTE:12}
   mail:
     inbox-host: ${ASSISTANT_IMAP_HOST:}
     inbox-port: ${ASSISTANT_IMAP_PORT:993}
     inbox-tls: ${ASSISTANT_IMAP_TLS:true}
+    auth-mechanisms: ${ASSISTANT_IMAP_AUTH_MECHANISMS:}
     username: ${ASSISTANT_IMAP_USER:}
     password: ${ASSISTANT_IMAP_PASSWORD:}
     from: ${ASSISTANT_MAIL_FROM:}
@@ -70,3 +101,43 @@ assistant:
     index-ms: ${ASSISTANT_INDEX_MS:60000}
     mail-ms: ${ASSISTANT_MAIL_MS:60000}
     reconcile-ms: ${ASSISTANT_RECONCILE_MS:120000}
+management:
+  tracing:
+    sampling:
+      probability: ${ASSISTANT_TRACE_SAMPLE_RATE:0.1}
+  otlp:
+    tracing:
+      endpoint: ${ASSISTANT_OTLP_ENDPOINT:http://127.0.0.1:4318/v1/traces}
+      export:
+        enabled: ${ASSISTANT_OTLP_ENABLED:false}
+  endpoints:
+    web:
+      exposure:
+        include: health,metrics
+  endpoint:
+    health:
+      show-details: never
+      probes:
+        enabled: true
+      group:
+        readiness:
+          include: readinessState,db
+  health:
+    mail:
+      enabled: false
+mybatis-plus:
+  global-config:
+    banner: false
+logging:
+  charset:
+    console: UTF-8
+  structured:
+    format:
+      console: ${ASSISTANT_LOG_FORMAT:ecs}
+  level:
+    root: ${ASSISTANT_LOG_LEVEL:INFO}
+    assistant: ${ASSISTANT_APP_LOG_LEVEL:INFO}
+springdoc:
+  paths-to-match: /api/v1/**
+  swagger-ui:
+    disable-swagger-default-url: true

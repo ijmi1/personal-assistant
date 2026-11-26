@@ -5,9 +5,14 @@ import assistant.common.Store;
 import assistant.draft.Drafts;
 import assistant.draft.Outbound;
 import assistant.mail.Threads;
+import assistant.task.TaskTracing;
 import com.github.kagkarlsson.scheduler.SchedulerClient;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.time.Instant;
 import java.time.OffsetDateTime;
@@ -15,18 +20,21 @@ import java.util.List;
 
 @Service
 public class SendDraft {
+    private static final Logger AUDIT = LoggerFactory.getLogger("assistant.audit");
     private final Store db;
     private final Drafts drafts;
     private final Threads threads;
     private final SchedulerClient scheduler;
+    private final TaskTracing tracing;
     private final String from;
 
-    public SendDraft(Store db, Drafts drafts, Threads threads, SchedulerClient scheduler,
+    public SendDraft(Store db, Drafts drafts, Threads threads, SchedulerClient scheduler, TaskTracing tracing,
                      @Value("${assistant.mail.from}") String from) {
         this.db = db;
         this.drafts = drafts;
         this.threads = threads;
         this.scheduler = scheduler;
+        this.tracing = tracing;
         this.from = from;
     }
 
@@ -57,7 +65,12 @@ public class SendDraft {
                 insert into sends (id,draft_id,revision,status,content,message_id,reply_header)
                 values (?,?,?,'QUEUED',?,?,?)
                 """, id, draftId, revision, db.write(envelope), messageId, threads.header(snapshot.messageId()));
-        scheduler.scheduleIfNotExists(DeliveryWorker.TASK.instance(id).build(), Instant.now());
+        scheduler.scheduleIfNotExists(DeliveryWorker.TASK.instance(id).data(tracing.capture()).build(), Instant.now());
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override public void afterCommit() {
+                AUDIT.atInfo().addKeyValue("send_id", id).addKeyValue("revision", revision).log("mail.confirmed");
+            }
+        });
         return get(id);
     }
 

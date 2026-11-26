@@ -3,8 +3,13 @@ package assistant.knowledge;
 import assistant.common.Problem;
 import assistant.common.Store;
 import assistant.model.Intelligence;
+import com.github.benmanes.caffeine.cache.Cache;
+import com.github.benmanes.caffeine.cache.Caffeine;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.binder.cache.CaffeineCacheMetrics;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
@@ -17,11 +22,16 @@ public class Retrieval {
     private final Store db;
     private final Intelligence model;
     private final IndexProfile profile;
+    private final Cache<QueryKey, String> queryVectors;
 
-    Retrieval(Store db, Intelligence model, IndexProfile profile) {
+    Retrieval(Store db, Intelligence model, IndexProfile profile, MeterRegistry metrics,
+              @Value("${assistant.retrieval.cache-entries}") long maxEntries,
+              @Value("${assistant.retrieval.cache-ttl}") Duration ttl) {
         this.db = db;
         this.model = model;
         this.profile = profile;
+        this.queryVectors = Caffeine.newBuilder().maximumSize(maxEntries).expireAfterWrite(ttl).recordStats().build();
+        CaffeineCacheMetrics.monitor(metrics, queryVectors, "retrieval.query-vectors");
     }
 
     /** Fuses keyword and vector results from the current index. docs/api/knowledge.md#retrieval */
@@ -40,10 +50,7 @@ public class Retrieval {
         if (!db.one(Boolean.class, "select exists(select 1 from fragments where profile=?)", active).orElse(false)) {
             return List.of();
         }
-        var embeddings = model.embed(List.of(text));
-        if (embeddings.size() != 1) {
-            throw Problem.unavailable("嵌入模型没有返回查询向量");
-        }
+        String embedding = queryVectors.get(new QueryKey(active, text), key -> embedding(key.text()));
         int count = Math.max(25, limit);
         var result = db.list(Row.class, """
                 with current_fragments as (
@@ -70,12 +77,22 @@ public class Retrieval {
                 select f.document_id,f.version,f.ordinal,f.anchor,f.excerpt,f.context
                 from current_fragments f join ranks r using (document_id,ordinal)
                 order by r.score desc,f.document_id,f.ordinal limit ?
-                """, active, Passages.terms(text), count, vector(embeddings.getFirst()), count, limit)
+                """, active, Passages.terms(text), count, embedding, count, limit)
                 .stream().map(row -> new Evidence(row.documentId(), row.version(), row.ordinal(),
                         db.read(row.anchor(), SourceFiles.Anchor.class), row.excerpt(), row.context())).toList();
         LOG.info("资料检索耗时 {} ms，返回 {} 段", Duration.ofNanos(System.nanoTime() - started).toMillis(), result.size());
         return result;
     }
+
+    private String embedding(String text) {
+        var embeddings = model.embed(List.of(text));
+        if (embeddings.size() != 1) {
+            throw Problem.unavailable("嵌入模型没有返回查询向量");
+        }
+        return vector(embeddings.getFirst());
+    }
+
+    private record QueryKey(String profile, String text) {}
 
     static String vector(float[] values) {
         if (values == null || values.length == 0) {

@@ -4,7 +4,13 @@
 
 ## HTTP
 
-所有路径相对 `/api`。Spring Security 校验本人登录会话和写请求的 CSRF 令牌。未登录返回 401，权限不足返回 403。输入无效返回 400，对象未知返回 404，版本或请求键冲突返回 409。错误体含可读原因。
+所有路径相对 `/api/v1`，旧 `/api` 路径继续使用同一契约。Spring Security 校验本人登录会话和写请求的 CSRF 令牌。未登录返回 401，权限不足返回 403。输入无效返回 400，对象未知返回 404，版本或请求键冲突返回 409。错误体含可读原因。
+
+资料提问和拟稿共享每分钟新建任务额度。同键重试、合并至处理中任务和轮询均无需额度。超限返回 429 和 `Retry-After` 秒数。
+
+HTTP 另设每分钟额度。已登录请求按账户统计，匿名请求和登录尝试按来源地址统计。两个 API 路径共享额度。受保护的 OpenAPI 位于 `/v3/api-docs`，浏览入口为 `/swagger-ui/index.html`。
+
+`POST /client-errors` 接收 `{"kind":"navigation"}` 或 `{"kind":"render"}`，返回 204。仅记录错误类型，不接收报错正文、网址、资料或草稿内容。需要登录与 CSRF 令牌。
 
 `GET /session/csrf` 返回 `{token, headerName}`，登录前后各取一次。`POST /session/login` 接收表单 `username` 和 `password`，成功返回 204 并建立会话。`POST /session/logout` 撤销当前会话。`GET /session` 返回当前用户名。错误体为 `{message, current?}`，涉及过时编辑时 `current` 是当前版本。
 

@@ -1,10 +1,12 @@
 <script setup lang="ts">
-import { computed, markRaw, onMounted, ref } from 'vue'
-import { useRoute } from 'vue-router'
+import { computed, markRaw, onMounted, onUnmounted, ref } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { ChatDotRound, Collection, Message, Timer } from '@element-plus/icons-vue'
-import { errorMessage, get, onSessionExpired, signIn, signOut } from './api'
+import { errorMessage, get, onSessionExpired, reportClientError, signIn, signOut } from './api'
+import PageErrorBoundary from './PageErrorBoundary.vue'
 
 const route = useRoute()
+const router = useRouter()
 const links = [
   { path: '/', label: '问我的资料', icon: markRaw(ChatDotRound), matches: ['', 'answer'] },
   { path: '/documents', label: '资料库', icon: markRaw(Collection), matches: ['documents', 'reader', 'citation'] },
@@ -18,7 +20,16 @@ const password = ref('')
 const error = ref('')
 const loading = ref(true)
 const busy = ref(false)
+const navigationFailed = ref(false)
+onUnmounted(router.onError(() => { navigationFailed.value = true }))
+onUnmounted(router.afterEach((_to, _from, failure) => {
+  if (!failure) navigationFailed.value = false
+}))
 onSessionExpired(() => { user.value = '' })
+
+function reload() {
+  window.location.reload()
+}
 
 onMounted(async () => {
   try {
@@ -87,7 +98,10 @@ async function logout() {
     </aside>
     <main class="main">
       <p v-if="error" class="problem" role="alert">{{ error }}</p>
-      <RouterView :key="route.path" />
+      <PageErrorBoundary :navigation-failed="navigationFailed" :route-key="route.path"
+                         @failure="reportClientError" @reload="reload">
+        <RouterView :key="route.path" />
+      </PageErrorBoundary>
     </main>
   </div>
 </template>

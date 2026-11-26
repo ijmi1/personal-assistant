@@ -1,8 +1,12 @@
 import axios from 'axios'
 
-const client = axios.create({ baseURL: '/api', timeout: 30_000 })
+export const API_BASE = '/api/v1'
+const client = axios.create({ baseURL: API_BASE, timeout: 12_000 })
 let csrf: { headerName: string; token: string } | undefined
 let onUnauthorized: () => void = () => undefined
+const lastErrorReport = new Map<ClientErrorKind, number>()
+
+export type ClientErrorKind = 'navigation' | 'render'
 
 export function onSessionExpired(callback: () => void) {
   onUnauthorized = callback
@@ -27,13 +31,13 @@ export async function prepareKeepalive() {
 }
 
 export function keepalivePut(url: string, data: unknown, requestKey: string) {
-  if (csrf) void fetch('/api' + url, {
+  if (csrf) void fetch(API_BASE + url, {
     method: 'PUT', keepalive: true, body: JSON.stringify(data),
     headers: { 'Content-Type': 'application/json', [csrf.headerName]: csrf.token, 'Idempotency-Key': requestKey },
   }).catch(() => undefined)
 }
 
-export async function get<T>(url: string, options?: { params?: object; signal?: AbortSignal }) {
+export async function get<T>(url: string, options?: { params?: object; signal?: AbortSignal; timeout?: number }) {
   return (await client.get<T>(url, options)).data
 }
 
@@ -41,6 +45,7 @@ export async function mutate<T>(method: 'POST' | 'PATCH' | 'DELETE' | 'PUT', url
   const security = await token()
   return (await client.request<T>({
     method, url, data,
+    timeout: method === 'PATCH' ? 60_000 : undefined,
     headers: { [security.headerName]: security.token, ...(key ? { 'Idempotency-Key': key } : {}) },
   })).data
 }
@@ -56,19 +61,28 @@ export async function signOut() {
   csrf = undefined
 }
 
+export function reportClientError(kind: ClientErrorKind) {
+  const now = performance.now()
+  const last = lastErrorReport.get(kind)
+  if (last !== undefined && now - last < 60_000) return
+  lastErrorReport.set(kind, now)
+  void mutate('POST', '/client-errors', { kind }).catch(() => undefined)
+}
+
 export function key() {
   return Array.from(crypto.getRandomValues(new Uint8Array(16)), byte => byte.toString(16).padStart(2, '0')).join('')
 }
 
 export function errorMessage(error: unknown) {
   if (axios.isAxiosError(error)) {
+    if (error.code === 'ECONNABORTED') return '等待服务响应超时，请检查网络后重试'
     return typeof error.response?.data?.message === 'string' ? error.response.data.message : '无法连接服务，请稍后重试'
   }
   return error instanceof Error ? error.message : '操作失败，请重试'
 }
 
 export function currentVersion<T>(error: unknown) {
-  return axios.isAxiosError(error) && error.response?.status === 409 ? error.response.data.current as T | undefined : undefined
+  return axios.isAxiosError(error) && error.response?.status === 409 ? error.response.data?.current as T | undefined : undefined
 }
 
 export function routeBack(fallback: string, router: { back(): void; push(path: string): unknown }) {

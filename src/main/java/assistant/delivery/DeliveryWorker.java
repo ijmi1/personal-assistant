@@ -4,11 +4,14 @@ import assistant.common.Store;
 import assistant.draft.Drafts;
 import assistant.mail.SentEvidence;
 import assistant.mail.Threads;
+import assistant.task.TaskTracing;
 import com.github.kagkarlsson.scheduler.task.TaskDescriptor;
 import jakarta.mail.MessagingException;
 import jakarta.mail.SendFailedException;
 import jakarta.mail.internet.MimeMessage;
 import org.eclipse.angus.mail.smtp.SMTPSendFailedException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.core.io.ByteArrayResource;
 import org.springframework.mail.MailAuthenticationException;
 import org.springframework.mail.MailException;
@@ -24,7 +27,8 @@ import java.util.List;
 
 @Component
 public class DeliveryWorker {
-    public static final TaskDescriptor<Void> TASK = TaskDescriptor.of("assistant-send", Void.class);
+    public static final TaskDescriptor<TaskTracing.Link> TASK = TaskDescriptor.of("assistant-send", TaskTracing.Link.class);
+    private static final Logger AUDIT = LoggerFactory.getLogger("assistant.audit");
     private static final String UNKNOWN = "发送结果待核对，已暂停重发";
     private final Store db;
     private final JavaMailSender smtp;
@@ -43,12 +47,15 @@ public class DeliveryWorker {
     /** Claims a queued delivery before touching SMTP. Interrupted claims only move to reconciliation. */
     public void run(String id) {
         var queued = db.one(Row.class, """
-                update sends set status='SENDING',updated_at=now() where id=? and status='QUEUED' returning *
+                update sends set status='SENDING',updated_at=now() where id=? and status='QUEUED'
+                returning id,draft_id,revision,content,message_id,reply_header
                 """, id);
         if (queued.isEmpty()) {
-            db.update("""
+            if (db.update("""
                     update sends set status='VERIFY',error=?,updated_at=now() where id=? and status='SENDING'
-                    """, UNKNOWN, id);
+                    """, UNKNOWN, id) == 1) {
+                audit(id, "VERIFY");
+            }
             return;
         }
         Row row = queued.get();
@@ -71,8 +78,10 @@ public class DeliveryWorker {
             if (outcome == Outcome.REJECTED) {
                 failed(row, "邮件服务器拒绝接收，请检查收件地址和邮箱配置");
             } else {
-                db.update("update sends set status='VERIFY',error=?,partial=?,updated_at=now() where id=? and status in ('SENDING','VERIFY')",
-                        UNKNOWN, outcome == Outcome.PARTIAL, row.id());
+                if (db.update("update sends set status='VERIFY',error=?,partial=?,updated_at=now() where id=? and status in ('SENDING','VERIFY')",
+                        UNKNOWN, outcome == Outcome.PARTIAL, row.id()) == 1) {
+                    audit(id, "VERIFY");
+                }
             }
             return;
         }
@@ -104,28 +113,41 @@ public class DeliveryWorker {
 
     @Scheduled(fixedDelayString = "${assistant.schedule.reconcile-ms}", initialDelayString = "${assistant.schedule.reconcile-ms}")
     void reconcile() {
-        List<Row> pending = db.list(Row.class, "select * from sends where status='VERIFY' and not partial order by updated_at limit 50");
+        List<Row> pending = db.list(Row.class, """
+                select id,draft_id,revision,content,message_id,reply_header from sends
+                where status='VERIFY' and not partial order by updated_at limit 50
+                """);
         var found = evidence.acknowledged(pending.stream().map(Row::messageId).toList());
         pending.stream().filter(row -> found.contains(row.messageId()))
                 .forEach(row -> complete(row, db.read(row.content(), SendDraft.Envelope.class)));
     }
 
     private void complete(Row row, SendDraft.Envelope envelope) {
-        db.atomic(() -> {
+        boolean updated = db.tx(() -> {
             if (db.update("update sends set status='SENT',error=null,updated_at=now() where id=? and status in ('SENDING','VERIFY')",
                     row.id()) == 1) {
                 threads.recordOutgoing(envelope.threadId(), row.messageId(), envelope.from(), envelope.content().subject(), envelope.content().body());
+                return true;
             }
+            return false;
         });
+        if (updated) audit(row.id(), "SENT");
     }
 
     private void failed(Row row, String reason) {
-        db.atomic(() -> {
+        boolean updated = db.tx(() -> {
             if (db.update("update sends set status='FAILED',error=?,updated_at=now() where id=? and status in ('SENDING','VERIFY')",
                     reason, row.id()) == 1) {
                 drafts.allowRevision(row.draftId(), row.revision());
+                return true;
             }
+            return false;
         });
+        if (updated) audit(row.id(), "FAILED");
+    }
+
+    private static void audit(String id, String status) {
+        AUDIT.atInfo().addKeyValue("send_id", id).addKeyValue("status", status).log("mail.delivery");
     }
 
     private static Outcome outcome(MailException error) {

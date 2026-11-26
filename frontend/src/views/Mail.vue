@@ -1,19 +1,24 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { errorMessage, get, key, mutate, time, type Accepted, type Thread } from '../api'
+import { poll } from '../poll'
 
 const router = useRouter()
 const threads = ref<Thread[]>([])
 const loading = ref(true)
 const busy = ref(false)
 const error = ref('')
+const refreshError = ref('')
 
-onMounted(async () => {
-  try { threads.value = await get<Thread[]>('/threads') }
-  catch (failure) { error.value = errorMessage(failure) }
+poll(async () => {
+  try {
+    threads.value = await get<Thread[]>('/threads')
+    refreshError.value = ''
+  } catch (failure) { refreshError.value = errorMessage(failure) }
   finally { loading.value = false }
-})
+  return true
+}, 15000)
 
 async function sync() {
   busy.value = true

@@ -45,6 +45,7 @@ import java.util.Map;
 import java.util.Properties;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Predicate;
 
@@ -54,15 +55,21 @@ final class Acceptance implements AutoCloseable {
     static final ObjectMapper JSON = new ObjectMapper();
     static final String OWNER = "owner@studio.test";
     static final String CLASSMATE = "classmate@studio.test";
-    static final String PASSWORD = "acceptance-only";
+    static final String PASSWORD = "Acceptance-only-2026!";
     static final String NOTE = "滑动窗口需要 while 反复收缩左边界，直到窗口重新满足约束。";
     final Path documents;
     final GreenMail mail;
     final Api api;
     private final String schema = "it_" + UUID.randomUUID().toString().replace("-", "");
+    private final Map<String, String> overrides;
     private ServletWebServerApplicationContext context;
 
     Acceptance(Path workspace) throws Exception {
+        this(workspace, Map.of());
+    }
+
+    Acceptance(Path workspace, Map<String, String> overrides) throws Exception {
+        this.overrides = Map.copyOf(overrides);
         documents = Files.createDirectory(workspace.resolve("documents"));
         mail = new GreenMail(new ServerSetup[]{
                 new ServerSetup(0, "127.0.0.1", ServerSetup.PROTOCOL_SMTP),
@@ -105,6 +112,7 @@ final class Acceptance implements AutoCloseable {
         options.put("assistant.schedule.mail-ms", "3600000");
         options.put("assistant.schedule.reconcile-ms", "3600000");
         options.put("spring.mail.port", mail.getSmtp().getPort());
+        options.putAll(overrides);
         String[] arguments = options.entrySet().stream().map(entry -> "--" + entry.getKey() + "=" + entry.getValue())
                 .toArray(String[]::new);
         context = (ServletWebServerApplicationContext) new SpringApplicationBuilder(Assistant.class, Fixtures.class)
@@ -132,6 +140,7 @@ final class Acceptance implements AutoCloseable {
     JdbcTemplate sql() { return context.getBean(JdbcTemplate.class); }
     TestSender sender() { return context.getBean(TestSender.class); }
     FakeModel model() { return context.getBean(FakeModel.class); }
+    assistant.knowledge.Retrieval retrieval() { return context.getBean(assistant.knowledge.Retrieval.class); }
     void stopWorker() { context.getBean(com.github.kagkarlsson.scheduler.Scheduler.class).stop(); }
 
     Api signIn() throws Exception {
@@ -202,11 +211,22 @@ final class Acceptance implements AutoCloseable {
 
     static final class Api {
         private final String base;
+        private final String prefix;
         private final HttpClient client = HttpClient.newBuilder().cookieHandler(new CookieManager())
                 .connectTimeout(Duration.ofSeconds(5)).build();
         private String csrf;
 
-        Api(String base) { this.base = base; }
+        Api(String base) { this(base, "/api"); }
+
+        Api(String base, String prefix) {
+            this.base = base;
+            this.prefix = prefix;
+        }
+
+        HttpResponse<String> web(String path) throws Exception {
+            var request = HttpRequest.newBuilder(URI.create(base + path)).timeout(Duration.ofSeconds(10)).GET().build();
+            return client.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+        }
 
         void login() throws Exception {
             csrf = get("/session/csrf").path("token").asText();
@@ -225,11 +245,17 @@ final class Acceptance implements AutoCloseable {
         }
 
         HttpResponse<String> raw(String method, String path, String body, String media, String key, boolean token) throws Exception {
-            var request = HttpRequest.newBuilder(URI.create(base + "/api" + path)).timeout(Duration.ofSeconds(10))
+            return raw(method, path, body, media, key, token, Map.of());
+        }
+
+        HttpResponse<String> raw(String method, String path, String body, String media, String key, boolean token,
+                                 Map<String, String> headers) throws Exception {
+            var request = HttpRequest.newBuilder(URI.create(base + prefix + path)).timeout(Duration.ofSeconds(10))
                     .method(method, body == null ? HttpRequest.BodyPublishers.noBody() : HttpRequest.BodyPublishers.ofString(body));
             if (body != null) request.header("Content-Type", media);
             if (key != null) request.header("Idempotency-Key", key);
             if (token && csrf != null) request.header("X-CSRF-TOKEN", csrf);
+            headers.forEach(request::header);
             return client.send(request.build(), HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
         }
 
@@ -290,8 +316,10 @@ final class Acceptance implements AutoCloseable {
 
     static class FakeModel implements Intelligence {
         final AtomicReference<Runnable> beforeNextEmbedding = new AtomicReference<>();
+        final AtomicInteger embeddingCalls = new AtomicInteger();
 
         @Override public List<float[]> embed(List<String> texts) {
+            embeddingCalls.incrementAndGet();
             Runnable change = beforeNextEmbedding.getAndSet(null);
             if (change != null) change.run();
             return texts.stream().map(text -> {

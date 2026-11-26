@@ -11,9 +11,9 @@ class TaskRoutes {
 
     TaskRoutes(OpenTask tasks) { this.tasks = tasks; }
 
-    @GetMapping("/api/tasks")
+    @GetMapping({"/api/tasks", "/api/v1/tasks"})
     Object tasks() { return tasks.query(null); }
 
-    @GetMapping("/api/tasks/{id}")
+    @GetMapping({"/api/tasks/{id}", "/api/v1/tasks/{id}"})
     Object task(@PathVariable String id) { return tasks.query(id).getFirst(); }
 }

@@ -5,7 +5,7 @@ import MarkdownIt from 'markdown-it'
 import type { PDFDocumentLoadingTask, PDFDocumentProxy, RenderTask } from 'pdfjs-dist'
 import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
 import {
-  currentVersion, errorMessage, get, keepalivePut, key, mutate, prepareKeepalive, routeBack,
+  API_BASE, currentVersion, errorMessage, get, keepalivePut, key, mutate, prepareKeepalive, routeBack,
   type Anchor, type Bookmark, type Citation, type DocumentView,
 } from '../api'
 
@@ -63,7 +63,7 @@ async function open() {
       const { GlobalWorkerOptions, getDocument } = await import('pdfjs-dist')
       if (disposed) return
       GlobalWorkerOptions.workerSrc = workerUrl
-      const url = '/api/documents/' + doc.id + '/content?' + new URLSearchParams({ version: version ?? '' })
+      const url = API_BASE + '/documents/' + doc.id + '/content?' + new URLSearchParams({ version: version ?? '' })
       const assets = import.meta.env.DEV ? '/node_modules/pdfjs-dist/' : '/pdfjs/'
       loadingTask = getDocument({
         url, disableRange: true, disableStream: true, enableXfa: false, cMapPacked: true,
@@ -86,7 +86,8 @@ async function open() {
         resize.observe(frame.value)
       }
     } else {
-      const outline = await get<{ anchor: Anchor; markdown: string }[]>('/documents/' + doc.id + '/outline', { params: { version } })
+      const outline = await get<{ anchor: Anchor; markdown: string }[]>('/documents/' + doc.id + '/outline',
+        { params: { version }, timeout: 60_000 })
       if (disposed) return
       units.value = outline.map(unit => ({ anchor: unit.anchor, html: markdown.render(unit.markdown) }))
       await scrollToAnchor(anchor?.paragraph ?? 1, ratio)

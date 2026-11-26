@@ -16,6 +16,7 @@ class MailboxConnection {
     private final boolean tls;
     private final String username;
     private final String password;
+    private final String mechanisms;
     private final String sentFolder;
 
     MailboxConnection(@Value("${assistant.mail.inbox-host}") String host,
@@ -23,12 +24,14 @@ class MailboxConnection {
                       @Value("${assistant.mail.inbox-tls}") boolean tls,
                       @Value("${assistant.mail.username}") String username,
                       @Value("${assistant.mail.password}") String password,
+                      @Value("${assistant.mail.auth-mechanisms}") String mechanisms,
                       @Value("${assistant.mail.sent-folder}") String sentFolder) {
         this.host = host;
         this.port = port;
         this.tls = tls;
         this.username = username;
         this.password = password;
+        this.mechanisms = mechanisms;
         this.sentFolder = sentFolder;
     }
 
@@ -40,6 +43,9 @@ class MailboxConnection {
         String protocol = tls ? "imaps" : "imap";
         String prefix = "mail." + protocol + ".";
         var options = new Properties();
+        if (!mechanisms.isBlank()) {
+            options.setProperty(prefix + "auth.mechanisms", mechanisms);
+        }
         options.setProperty(prefix + "ssl.checkserveridentity", "true");
         options.setProperty(prefix + "connectiontimeout", "10000");
         options.setProperty(prefix + "timeout", "30000");

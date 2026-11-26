@@ -22,7 +22,7 @@ import org.springframework.web.bind.annotation.RestController;
 import java.security.Principal;
 
 @RestController
-@RequestMapping("/api")
+@RequestMapping({"/api", "/api/v1"})
 class KnowledgeRoutes {
     private final SyncDocuments sync;
     private final Documents documents;

@@ -15,17 +15,25 @@ import java.util.function.Supplier;
 
 @Service
 public class Jobs {
-    static final TaskDescriptor<Void> TASK = TaskDescriptor.of("assistant-job", Void.class);
+    static final TaskDescriptor<TaskTracing.Link> TASK = TaskDescriptor.of("assistant-job", TaskTracing.Link.class);
     private final Store db;
     private final TaskMapper tasks;
     private final SchedulerClient scheduler;
+    private final TaskTracing tracing;
     private final String owner;
+    private final int aiJobsPerMinute;
 
-    public Jobs(Store db, TaskMapper tasks, SchedulerClient scheduler, @Value("${assistant.owner}") String owner) {
+    public Jobs(Store db, TaskMapper tasks, SchedulerClient scheduler, TaskTracing tracing, @Value("${assistant.owner}") String owner,
+                @Value("${assistant.jobs.ai-per-minute}") int aiJobsPerMinute) {
+        if (aiJobsPerMinute < 1) {
+            throw new IllegalArgumentException("ASSISTANT_AI_JOBS_PER_MINUTE 必须大于零");
+        }
         this.db = db;
         this.tasks = tasks;
         this.scheduler = scheduler;
+        this.tracing = tracing;
         this.owner = owner;
+        this.aiJobsPerMinute = aiJobsPerMinute;
     }
 
     /** Persists the job and its schedule together. A non-null scope merges active work. docs/api/tasks.md#jobs */
@@ -42,6 +50,9 @@ public class Jobs {
                 return new Accepted(active.getFirst().id);
             }
         }
+        if (job.type().equals("QUESTION") || job.type().equals("DRAFT")) {
+            checkAiQuota();
+        }
         TaskRow row = new TaskRow();
         row.id = Store.id();
         row.type = job.type();
@@ -50,8 +61,19 @@ public class Jobs {
         row.status = "QUEUED";
         row.step = "等待后台处理";
         tasks.insert(row);
-        scheduler.scheduleIfNotExists(TASK.instance(row.id).build(), Instant.now());
+        scheduler.scheduleIfNotExists(TASK.instance(row.id).data(tracing.capture()).build(), Instant.now());
         return new Accepted(row.id);
+    }
+
+    private void checkAiQuota() {
+        db.lock(db.write(List.of("ai-job-quota", owner)));
+        long count = db.one(Long.class, """
+                select count(*) from tasks where type in ('QUESTION', 'DRAFT')
+                and created_at > statement_timestamp() - interval '1 minute'
+                """).orElseThrow();
+        if (count >= aiJobsPerMinute) {
+            throw Problem.rateLimited("提问和拟稿过于频繁，请一分钟后再试");
+        }
     }
 
     public record JobSpec(String type, String input, String scope) {}

@@ -20,6 +20,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.FileVisitResult;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
+import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
 import java.nio.file.SimpleFileVisitor;
 import java.nio.file.attribute.BasicFileAttributes;
@@ -67,7 +68,16 @@ public class SourceFiles {
     /** Reads and verifies a repository-relative document without following paths outside the configured root. */
     public Snapshot read(String relative) throws IOException {
         Path root = root();
-        Path path = root.resolve(relative).normalize().toRealPath();
+        Path candidate;
+        try {
+            candidate = Path.of(relative);
+        } catch (InvalidPathException e) {
+            throw Problem.missing("资料路径无效");
+        }
+        if (candidate.getRoot() != null || !candidate.normalize().equals(candidate)) {
+            throw Problem.missing("资料路径无效");
+        }
+        Path path = root.resolve(candidate).toRealPath();
         if (!path.startsWith(root) || !Files.isRegularFile(path, LinkOption.NOFOLLOW_LINKS)) {
             throw Problem.missing("原文已删除或不在资料目录内");
         }
