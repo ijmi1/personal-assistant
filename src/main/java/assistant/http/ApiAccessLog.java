@@ -6,7 +6,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.boot.autoconfigure.security.SecurityProperties;
+import org.springframework.boot.security.autoconfigure.web.servlet.SecurityFilterProperties;
 import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
@@ -16,7 +16,7 @@ import java.io.IOException;
 import java.util.concurrent.TimeUnit;
 
 @Component
-@Order(SecurityProperties.DEFAULT_FILTER_ORDER - 1)
+@Order(SecurityFilterProperties.DEFAULT_FILTER_ORDER - 1)
 class ApiAccessLog extends OncePerRequestFilter {
     private static final Logger LOG = LoggerFactory.getLogger("assistant.access");
 
