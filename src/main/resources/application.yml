@@ -139,5 +139,6 @@ logging:
     assistant: ${ASSISTANT_APP_LOG_LEVEL:INFO}
 springdoc:
   paths-to-match: /api/v1/**
+  use-fqn: true
   swagger-ui:
     disable-swagger-default-url: true

@@ -1,6 +1,9 @@
 package assistant.http;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -118,14 +121,18 @@ public class SessionConfig {
 
 @RestController
 @RequestMapping({"/api/session", "/api/v1/session"})
+@Tag(name = "会话", description = "获取当前会话身份与 CSRF 令牌")
 class SessionRoutes {
     @GetMapping("/csrf")
-    Map<String, String> csrf(CsrfToken token) {
+    @Operation(summary = "获取 CSRF 令牌",
+            description = "响应包含 token 和 headerName。登录前及登录成功后各获取一次。")
+    Map<String, String> csrf(@Parameter(hidden = true) CsrfToken token) {
         return Map.of("token", token.getToken(), "headerName", token.getHeaderName());
     }
 
     @GetMapping
-    Map<String, String> session(Principal owner) {
+    @Operation(summary = "查看当前登录用户", description = "返回已登录用户的用户名。")
+    Map<String, String> session(@Parameter(hidden = true) Principal owner) {
         return Map.of("username", owner.getName());
     }
 }

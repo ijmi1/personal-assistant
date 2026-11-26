@@ -3,6 +3,7 @@ package assistant.acceptance;
 import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.AppenderBase;
+import com.fasterxml.jackson.databind.JsonNode;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 import org.junit.jupiter.api.io.TempDir;
@@ -25,7 +26,26 @@ class HardeningIT {
             assertThat(anonymous.web("/v3/api-docs").statusCode()).isEqualTo(401);
             var schema = host.api.web("/v3/api-docs");
             assertThat(schema.statusCode()).isEqualTo(200);
-            assertThat(JSON.readTree(schema.body()).path("paths").has("/api/v1/questions")).isTrue();
+            var openApi = JSON.readTree(schema.body());
+            var paths = openApi.path("paths");
+            var question = paths.path("/api/v1/questions").path("post");
+            assertThat(question.path("summary").asText()).isEqualTo("提交资料问题");
+            assertThat(question.path("tags")).extracting(JsonNode::asText).contains("资料与阅读");
+            assertThat(question.path("parameters")).anySatisfy(parameter -> {
+                assertThat(parameter.path("name").asText()).isEqualTo("Idempotency-Key");
+                assertThat(parameter.path("in").asText()).isEqualTo("header");
+                assertThat(parameter.path("description").asText()).isNotBlank();
+                assertThat(parameter.path("required").asBoolean()).isTrue();
+            });
+            assertThat(question.path("responses").has("202")).isTrue();
+            var history = paths.path("/api/v1/threads/{id}").path("get");
+            assertThat(history.path("parameters")).anySatisfy(parameter -> {
+                assertThat(parameter.path("name").asText()).isEqualTo("through");
+                assertThat(parameter.path("description").asText()).contains("省略");
+                assertThat(parameter.path("required").asBoolean()).isFalse();
+            });
+            assertResponseSchema(openApi, paths.path("/api/v1/answers/{id}").path("get"), "claims");
+            assertResponseSchema(openApi, paths.path("/api/v1/sends/{id}").path("get"), "draftId");
             assertThat(host.api.web("/swagger-ui/index.html").statusCode()).isEqualTo(200);
 
             var headers = Map.of("Origin", "https://web.example.test", "Access-Control-Request-Method", "PUT",
@@ -39,6 +59,13 @@ class HardeningIT {
             host.api.request("POST", "/client-errors", Map.of("kind", "navigation"), null, 204);
             host.api.request("POST", "/client-errors", Map.of("kind", "unknown"), null, 400);
         }
+    }
+
+    private static void assertResponseSchema(JsonNode openApi, JsonNode operation, String field) {
+        var mediaType = operation.path("responses").path("200").path("content").elements().next();
+        String schemaRef = mediaType.path("schema").path("$ref").asText();
+        assertThat(schemaRef).startsWith("#/components/schemas/");
+        assertThat(openApi.at(schemaRef.substring(1)).path("properties").has(field)).isTrue();
     }
 
     @Test void limitsOwnerRequestsAndLoginAttemptsAcrossApiVersions() throws Exception {
