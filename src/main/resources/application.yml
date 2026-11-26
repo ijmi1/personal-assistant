@@ -1,0 +1,72 @@
+server:
+  address: ${ASSISTANT_BIND:127.0.0.1}
+  port: ${ASSISTANT_PORT:8080}
+  forward-headers-strategy: framework
+  servlet:
+    session:
+      timeout: 12h
+      cookie:
+        http-only: true
+        same-site: strict
+        secure: ${ASSISTANT_SECURE_COOKIE:true}
+spring:
+  http:
+    client:
+      connect-timeout: 10s
+      read-timeout: 60s
+  datasource:
+    url: ${ASSISTANT_DB_URL:jdbc:postgresql://127.0.0.1:5432/assistant}
+    username: ${ASSISTANT_DB_USER:assistant}
+    password: ${ASSISTANT_DB_PASSWORD:}
+  ai:
+    model:
+      chat: ${ASSISTANT_CHAT_PROVIDER:openai}
+      embedding: ${ASSISTANT_EMBEDDING_PROVIDER:openai}
+      audio:
+        speech: none
+        transcription: none
+      image: none
+      moderation: none
+    retry:
+      max-attempts: 1
+    openai:
+      base-url: ${ASSISTANT_MODEL_URL:https://api.openai.com}
+      api-key: ${ASSISTANT_MODEL_KEY:}
+      chat:
+        options:
+          model: ${ASSISTANT_CHAT_MODEL:gpt-4o-mini}
+      embedding:
+        options:
+          model: ${ASSISTANT_EMBEDDING_MODEL:text-embedding-3-small}
+  mail:
+    host: ${ASSISTANT_SMTP_HOST:localhost}
+    port: ${ASSISTANT_SMTP_PORT:465}
+    username: ${ASSISTANT_SMTP_USER:}
+    password: ${ASSISTANT_SMTP_PASSWORD:}
+    properties:
+      "[mail.smtp.auth]": ${ASSISTANT_SMTP_AUTH:true}
+      "[mail.smtp.ssl.enable]": ${ASSISTANT_SMTP_SSL:true}
+      "[mail.smtp.ssl.checkserveridentity]": true
+      "[mail.smtp.starttls.required]": ${ASSISTANT_SMTP_STARTTLS:false}
+      "[mail.smtp.starttls.enable]": ${ASSISTANT_SMTP_STARTTLS:false}
+      "[mail.smtp.connectiontimeout]": 10000
+      "[mail.smtp.timeout]": 30000
+      "[mail.smtp.writetimeout]": 30000
+assistant:
+  owner: ${ASSISTANT_OWNER:learner}
+  password: ${ASSISTANT_PASSWORD:}
+  documents: ${ASSISTANT_DOCUMENTS:}
+  embedding-profile: ${ASSISTANT_EMBEDDING_PROFILE:}
+  model-enabled: ${ASSISTANT_MODEL_ENABLED:true}
+  mail:
+    inbox-host: ${ASSISTANT_IMAP_HOST:}
+    inbox-port: ${ASSISTANT_IMAP_PORT:993}
+    inbox-tls: ${ASSISTANT_IMAP_TLS:true}
+    username: ${ASSISTANT_IMAP_USER:}
+    password: ${ASSISTANT_IMAP_PASSWORD:}
+    from: ${ASSISTANT_MAIL_FROM:}
+    sent-folder: ${ASSISTANT_IMAP_SENT_FOLDER:}
+  schedule:
+    index-ms: ${ASSISTANT_INDEX_MS:60000}
+    mail-ms: ${ASSISTANT_MAIL_MS:60000}
+    reconcile-ms: ${ASSISTANT_RECONCILE_MS:120000}

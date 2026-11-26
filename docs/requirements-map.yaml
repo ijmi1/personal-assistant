@@ -1,0 +1,45 @@
+requirements:
+  K01:
+    name: 资料同步
+    file: src/main/java/assistant/knowledge/SyncDocuments.java
+    entry: assistant.knowledge.SyncDocuments#sync
+    test: assistant.acceptance.KnowledgeIT#syncChanges
+  K02:
+    name: 资料问答
+    file: src/main/java/assistant/knowledge/AnswerQuestion.java
+    entry: assistant.knowledge.AnswerQuestion#answer
+    test: assistant.acceptance.KnowledgeIT#answerFromSources
+  K03:
+    name: 引用定位
+    file: src/main/java/assistant/reader/OpenCitation.java
+    entry: assistant.reader.OpenCitation#open
+    test: assistant.acceptance.ReaderIT#followCitation
+  K04:
+    name: 跨设备续读
+    file: src/main/java/assistant/reader/ReadingPosition.java
+    entry: assistant.reader.ReadingPosition#access
+    test: assistant.acceptance.ReaderIT#resumeAcrossDevices
+  E01:
+    name: 收信和往来
+    file: src/main/java/assistant/mail/SyncMailbox.java
+    entry: assistant.mail.SyncMailbox#sync
+    test: assistant.acceptance.MailboxIT#syncThread
+  E02:
+    name: 拟稿、编辑和放弃
+    file: src/main/java/assistant/draft/ReplyDraft.java
+    entry: assistant.draft.ReplyDraft#manage
+    test: assistant.acceptance.DraftIT#editAndKeep
+  E03:
+    name: 确认发送已核对的修订
+    file: src/main/java/assistant/delivery/SendDraft.java
+    entry: assistant.delivery.SendDraft#confirm
+    test: assistant.acceptance.DeliveryIT#sendFinalVersion
+  M01:
+    name: 后台任务与跨设备接续
+    file: src/main/java/assistant/task/OpenTask.java
+    entry: assistant.task.OpenTask#query
+    test: assistant.acceptance.TaskIT#resumeAfterRestart
+scenarios:
+  C01:
+    name: 手机端从来信到发送确认
+    test: assistant.acceptance.StudyReplyE2E#replyOnPhone

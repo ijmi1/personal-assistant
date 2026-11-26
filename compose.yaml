@@ -1,0 +1,14 @@
+services:
+  postgres:
+    image: pgvector/pgvector:pg17
+    environment:
+      POSTGRES_DB: assistant
+      POSTGRES_USER: ${ASSISTANT_DB_USER:-assistant}
+      POSTGRES_PASSWORD: ${ASSISTANT_DB_PASSWORD:?Set ASSISTANT_DB_PASSWORD}
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - assistant-db:/var/lib/postgresql/data
+
+volumes:
+  assistant-db:
